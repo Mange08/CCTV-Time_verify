@@ -1,17 +1,17 @@
-// CCTV-Time Catch — Service Worker v0.9
+// CCTV-Time Catch — Service Worker v0.10
 // Cache app shell for offline use; time sync still requires network.
 // Tesseract.js is loaded from CDN and browser-cached separately.
 
-const CACHE = 'cctv-timecatch-v0.9';
+const CACHE = 'cctv-timecatch-v0.10';
 const ASSETS = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/apple-touch-icon.png',
-  './icons/maskable-192.png',
-  './icons/maskable-512.png'
+  './appletouchicon.png',
+  './icon192.png',
+  './icon512.png',
+  './maskable192.png',
+  './maskable512.png'
 ];
 
 self.addEventListener('install', (e) => {
