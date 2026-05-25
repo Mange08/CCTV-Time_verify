@@ -1,17 +1,14 @@
-// CCTV-Time Catch — Service Worker v0.10
-// Cache app shell for offline use; time sync still requires network.
-// Tesseract.js is loaded from CDN and browser-cached separately.
-
-const CACHE = 'cctv-timecatch-v0.10';
+// CCTV-Time Catch — Service Worker v0.11
+const CACHE = 'cctv-timecatch-v0.11';
 const ASSETS = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './appletouchicon.png',
-  './icon192.png',
-  './icon512.png',
-  './maskable192.png',
-  './maskable512.png'
+  './apple-touch-icon.png',
+  './icon-192.png',
+  './icon-512.png',
+  './maskable-192.png',
+  './maskable-512.png'
 ];
 
 self.addEventListener('install', (e) => {
@@ -31,7 +28,6 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
 
-  // NEVER cache time-sync requests
   const isTimeSource =
     url.hostname.includes('cloudflare.com') ||
     url.hostname.includes('worldtimeapi.org') ||
@@ -44,7 +40,6 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Tesseract CDN: cache-first
   if (url.hostname.includes('jsdelivr.net') || url.hostname.includes('tessdata')) {
     e.respondWith(
       caches.open(CACHE).then(async (cache) => {
@@ -62,7 +57,6 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // App shell: cache-first
   e.respondWith(
     caches.match(e.request).then((cached) => cached || fetch(e.request))
   );
