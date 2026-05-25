@@ -1,0 +1,1629 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TimeCatch">
+<meta name="theme-color" content="#0a0a0a">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" sizes="512x512" href="icons/icon-512.png">
+<link rel="apple-touch-icon-precomposed" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<title>CCTV-Time Catch</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --panel: #141414;
+    --ink: #f5f1e8;
+    --muted: #8a8378;
+    --accent: #d4a017;
+    --danger: #c83e3e;
+    --ok: #5b8c5a;
+    --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+    --serif: "Cormorant Garamond", "Iowan Old Style", Georgia, serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--ink); font-family: var(--mono); }
+  /* Blockera text-selection bara på element som INTE är inputs/textareas */
+  body > *:not(.modal),
+  header, .viewfinder, .controls, .install-hint, .toast {
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+  }
+  /* Input-fält måste få full touch-respons */
+  input, textarea {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+    touch-action: manipulation;
+    pointer-events: auto;
+    font-size: 16px; /* iOS zoomar in om font-size < 16px vid focus */
+  }
+  body {
+    display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* HEADER */
+  header {
+    padding: 14px 18px 10px;
+    display: flex; justify-content: space-between; align-items: baseline;
+    border-bottom: 1px solid #222;
+  }
+  .brand { font-family: var(--serif); font-size: 22px; font-style: italic; letter-spacing: 0.5px; }
+  .brand .accent { color: var(--accent); }
+  .status { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; }
+  .status .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--danger); margin-right: 5px; vertical-align: middle; }
+  .status.ok .dot { background: var(--ok); }
+  .status.sync .dot { background: var(--accent); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* VIEWFINDER */
+  .viewfinder {
+    flex: 1; position: relative; background: #000; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  video {
+    width: 100%; height: 100%; object-fit: cover; background: #000;
+  }
+  .no-cam {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 40px; color: var(--muted);
+  }
+  .no-cam svg { width: 60px; height: 60px; opacity: 0.3; margin-bottom: 16px; }
+  .no-cam h2 { font-family: var(--serif); font-size: 26px; color: var(--ink); margin-bottom: 8px; font-style: italic; }
+  .no-cam p { font-size: 12px; line-height: 1.6; max-width: 280px; }
+
+  .overlay {
+    position: absolute; bottom: 12px; left: 12px; right: 12px;
+    background: rgba(10, 10, 10, 0.78);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    border: 1px solid rgba(212, 160, 23, 0.4);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-family: var(--mono);
+    pointer-events: none;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+  .overlay .label {
+    font-size: 8px; color: var(--accent); letter-spacing: 2px;
+    text-transform: uppercase; margin-bottom: 4px;
+  }
+  .overlay .time-main {
+    font-size: 22px; font-weight: 600; color: var(--ink);
+    letter-spacing: 0.5px; line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .overlay .meta {
+    font-size: 9px; color: var(--muted); margin-top: 5px;
+    line-height: 1.5; letter-spacing: 0.3px;
+  }
+  .overlay .meta strong { color: #c8c0b0; font-weight: 500; }
+
+  .crosshair { position: absolute; pointer-events: none; width: 18px; height: 18px; border-color: rgba(212, 160, 23, 0.7); }
+  .crosshair.tl { top: 10px; left: 10px; border-top: 1px solid; border-left: 1px solid; }
+  .crosshair.tr { top: 10px; right: 10px; border-top: 1px solid; border-right: 1px solid; }
+  .crosshair.bl { bottom: 10px; left: 10px; border-bottom: 1px solid; border-left: 1px solid; }
+  .crosshair.br { bottom: 10px; right: 10px; border-bottom: 1px solid; border-right: 1px solid; }
+
+  /* Tap-to-focus indikator */
+  .focus-indicator {
+    position: absolute;
+    width: 60px; height: 60px;
+    border: 2px solid var(--accent);
+    border-radius: 4px;
+    pointer-events: none;
+    animation: focusPulse 0.8s ease-out forwards;
+    z-index: 10;
+  }
+  @keyframes focusPulse {
+    0% { transform: scale(1.4); opacity: 0; }
+    30% { transform: scale(1); opacity: 1; }
+    100% { transform: scale(0.85); opacity: 0; }
+  }
+
+  /* CONTROLS */
+  .controls {
+    background: var(--panel); padding: 14px 18px 18px;
+    border-top: 1px solid #222;
+  }
+  .mode-switch {
+    display: flex; gap: 4px; margin-bottom: 14px;
+    background: #0a0a0a; padding: 3px; border-radius: 6px;
+    border: 1px solid #222;
+  }
+  .mode-switch button {
+    flex: 1; padding: 8px 4px; background: transparent;
+    border: none; color: var(--muted); font-family: var(--mono);
+    font-size: 9px; letter-spacing: 1.2px; text-transform: uppercase;
+    cursor: pointer; border-radius: 4px; transition: all 0.2s;
+  }
+  .mode-switch button.active { background: var(--accent); color: #0a0a0a; font-weight: 600; }
+
+  .action-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .btn-secondary {
+    background: transparent; border: 1px solid #333;
+    color: var(--muted); border-radius: 50%; width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .btn-secondary:active { background: #222; }
+  .btn-secondary svg { width: 18px; height: 18px; }
+
+  .btn-shutter {
+    width: 74px; height: 74px; border-radius: 50%;
+    background: var(--ink); border: 4px solid #0a0a0a;
+    box-shadow: 0 0 0 3px var(--ink);
+    cursor: pointer; transition: transform 0.1s; position: relative;
+  }
+  .btn-shutter:active { transform: scale(0.92); }
+  .btn-shutter:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-start {
+    background: var(--accent); color: #0a0a0a;
+    border: none; padding: 14px 28px; font-family: var(--mono);
+    font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
+    font-weight: 600; cursor: pointer; border-radius: 4px; width: 100%;
+  }
+
+  .info-bar {
+    font-size: 10px; color: var(--muted);
+    display: flex; justify-content: space-between; margin-bottom: 10px;
+    letter-spacing: 0.5px;
+  }
+  .info-bar .v { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .src-clickable { cursor: pointer; user-select: none; -webkit-user-select: none; padding: 2px 4px; margin: -2px -4px; border-radius: 3px; transition: background 0.15s; }
+  .src-clickable:active { background: #222; }
+  .src-caret { font-size: 8px; color: var(--muted); margin-left: 2px; transition: transform 0.2s; display: inline-block; }
+  .src-clickable.open .src-caret { transform: rotate(180deg); }
+  .src-list {
+    display: none;
+    background: #0a0a0a;
+    border: 1px solid #222;
+    border-radius: 4px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-size: 10px;
+    letter-spacing: 0.3px;
+  }
+  .src-list.show { display: block; }
+  .src-list .row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 3px 0;
+  }
+  .src-list .row + .row { border-top: 1px solid #1a1a1a; }
+  .src-list .name { color: var(--ink); }
+  .src-list .stat { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
+  .src-list .stat.ok { color: var(--ok); }
+  .src-list .stat.fail { color: var(--danger); }
+
+  /* MODAL */
+  .modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.97);
+    z-index: 100; display: none; flex-direction: column;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  .modal.open { display: flex; }
+  .modal-header {
+    padding: 14px 18px; display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid #222;
+  }
+  .modal-header h3 { font-family: var(--serif); font-style: italic; font-size: 20px; }
+  .modal-close { background: none; border: none; color: var(--ink); font-size: 24px; cursor: pointer; padding: 0 8px; }
+  .modal-body {
+    flex: 1; overflow-y: auto; padding: 16px;
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+  }
+  #resultImg { max-width: 100%; max-height: 50vh; border: 1px solid #333; border-radius: 2px; -webkit-touch-callout: default; user-select: auto; -webkit-user-select: auto; }
+  #confirmImg { max-width: 100%; max-height: 50vh; border: 1px solid rgba(91, 140, 90, 0.4); border-radius: 2px; -webkit-touch-callout: default; user-select: auto; -webkit-user-select: auto; }
+
+  /* CCTV INPUT SECTION */
+  .cctv-section {
+    width: 100%; max-width: 360px;
+    background: rgba(212, 160, 23, 0.06);
+    border: 1px solid rgba(212, 160, 23, 0.3);
+    border-radius: 6px; padding: 14px;
+  }
+  .cctv-section .lbl {
+    font-size: 9px; color: var(--accent); letter-spacing: 2px;
+    text-transform: uppercase; margin-bottom: 8px;
+  }
+  .cctv-section .desc { font-size: 11px; color: var(--muted); margin-bottom: 12px; line-height: 1.5; }
+
+  .ocr-status {
+    display: flex; align-items: center; gap: 8px;
+    background: #0a0a0a; border: 1px solid #222;
+    padding: 8px 10px; border-radius: 4px;
+    margin-bottom: 10px; font-size: 11px;
+    color: var(--muted); letter-spacing: 0.3px;
+  }
+  .ocr-status.ok { border-color: rgba(91, 140, 90, 0.5); color: #c8c0b0; }
+  .ocr-status.warn { border-color: rgba(212, 160, 23, 0.5); color: #c8c0b0; }
+  .ocr-status.err { border-color: rgba(200, 62, 62, 0.5); color: #c8c0b0; }
+  .ocr-spinner {
+    display: inline-block; width: 12px; height: 12px;
+    border: 2px solid #333; border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+  .ocr-status.ok .ocr-spinner,
+  .ocr-status.warn .ocr-spinner,
+  .ocr-status.err .ocr-spinner { display: none; }
+  .ocr-status.ok::before { content: "✓"; color: var(--ok); font-weight: bold; }
+  .ocr-status.warn::before { content: "⚠"; color: var(--accent); }
+  .ocr-status.err::before { content: "✗"; color: var(--danger); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .time-input-row {
+    display: grid; grid-template-columns: 1fr auto 1fr auto 1fr;
+    gap: 4px; align-items: center; margin-bottom: 10px;
+  }
+  .time-input-row input {
+    background: #0a0a0a; border: 1px solid #333;
+    color: var(--ink); font-family: var(--mono); font-size: 20px;
+    text-align: center; padding: 12px 6px; border-radius: 4px;
+    width: 100%; font-variant-numeric: tabular-nums;
+    -webkit-user-select: text; user-select: text;
+    -webkit-touch-callout: default;
+    -webkit-appearance: none; appearance: none;
+    touch-action: manipulation;
+    pointer-events: auto;
+    min-height: 48px;
+  }
+  .time-input-row input:focus { outline: none; border-color: var(--accent); background: #1a1a1a; }
+  .time-input-row .sep { color: var(--accent); font-size: 18px; font-weight: 600; }
+
+  .compute-btn {
+    width: 100%; background: var(--accent); color: #0a0a0a;
+    border: none; padding: 10px; font-family: var(--mono); font-size: 10px;
+    letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600;
+    border-radius: 4px; cursor: pointer;
+  }
+  .compute-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    background: #444;
+    color: #888;
+  }
+
+  .burn-toggle {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 10px; padding: 8px 4px;
+    font-size: 11px; color: var(--ink);
+    cursor: pointer; user-select: none; -webkit-user-select: none;
+  }
+  .burn-toggle input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none;
+    width: 18px; height: 18px;
+    border: 1px solid #444; border-radius: 3px;
+    background: #0a0a0a;
+    cursor: pointer; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .burn-toggle input[type="checkbox"]:checked {
+    background: var(--accent); border-color: var(--accent);
+  }
+  .burn-toggle input[type="checkbox"]:checked::after {
+    content: "✓"; color: #0a0a0a; font-size: 13px; font-weight: 700;
+  }
+
+  .diff-result {
+    margin-top: 12px; padding: 10px;
+    background: #0a0a0a; border-radius: 4px;
+    font-size: 12px; line-height: 1.5; display: none;
+  }
+  .diff-result.show { display: block; }
+  .diff-result strong { color: var(--accent); }
+  .diff-result .big { font-size: 16px; color: var(--ink); font-weight: 600; display: block; margin: 4px 0; }
+
+  .hint { font-size: 10px; color: var(--muted); text-align: center; letter-spacing: 1px; line-height: 1.6; max-width: 320px; }
+
+  .modal-footer {
+    padding: 14px 18px; border-top: 1px solid #222;
+    display: flex; gap: 10px;
+  }
+  .modal-footer button {
+    flex: 1; padding: 12px; font-family: var(--mono); font-size: 11px;
+    letter-spacing: 1.5px; text-transform: uppercase; border-radius: 4px;
+    cursor: pointer; border: none;
+  }
+  .btn-save { background: var(--accent); color: #0a0a0a; font-weight: 600; }
+  .btn-discard { background: transparent; border: 1px solid #444; color: var(--muted); }
+
+  .toast {
+    position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--accent);
+    padding: 10px 18px; border-radius: 4px; font-size: 11px;
+    z-index: 200; opacity: 0; transition: opacity 0.3s;
+    letter-spacing: 1px; text-transform: uppercase;
+    pointer-events: none;
+    max-width: 90vw; text-align: center;
+  }
+  .toast.show { opacity: 1; }
+  .toast.ok { border-color: var(--ok); }
+  .toast.warn { border-color: var(--accent); }
+  .toast.err { border-color: var(--danger); }
+
+  .install-hint {
+    position: fixed; bottom: 20px; left: 20px; right: 20px;
+    background: var(--panel); border: 1px solid var(--accent);
+    padding: 14px 16px; border-radius: 6px; font-size: 11px;
+    color: var(--ink); line-height: 1.5; z-index: 50;
+    display: none;
+  }
+  .install-hint.show { display: block; }
+  .install-hint strong { color: var(--accent); }
+  .install-hint button {
+    background: none; border: none; color: var(--muted);
+    float: right; font-size: 18px; padding: 0; margin-left: 8px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">CCTV<span class="accent">·</span>Time<span class="accent">·</span>Catch</div>
+  <div class="status" id="status"><span class="dot"></span><span id="statusText">Synkar tid…</span></div>
+</header>
+
+<div class="viewfinder" id="viewfinder">
+  <video id="video" autoplay playsinline muted></video>
+
+  <div class="no-cam" id="noCam">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M23 7l-7 5 7 5V7z"/>
+      <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+    </svg>
+    <h2>Sökaren väntar</h2>
+    <p>Tryck "Starta kamera" nedan. Tillåt kameraåtkomst när Safari frågar.</p>
+  </div>
+
+  <div class="crosshair tl"></div>
+  <div class="crosshair tr"></div>
+  <div class="crosshair bl"></div>
+  <div class="crosshair br"></div>
+
+  <div class="overlay" id="overlay" style="display:none">
+    <div class="label" id="overlayLabel">VERKLIG TID · UTC</div>
+    <div class="time-main" id="overlayTime">--:--:--.---</div>
+    <div class="meta" id="overlayMeta"></div>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="info-bar">
+    <span>Offset: <span class="v" id="offsetVal">—</span></span>
+    <span>Osäkerhet: <span class="v" id="rttVal">—</span></span>
+    <span class="src-clickable" id="srcToggle">Källor: <span class="v" id="srcVal">0/3</span> <span class="src-caret">▾</span></span>
+  </div>
+  <div class="src-list" id="srcList"></div>
+
+  <div class="mode-switch">
+    <button data-mode="min" class="active">Minimal</button>
+    <button data-mode="std">Standard</button>
+    <button data-mode="full">Full forensik</button>
+  </div>
+
+  <div id="startWrap">
+    <button class="btn-start" id="startBtn">Starta kamera</button>
+  </div>
+
+  <div class="action-row" id="captureRow" style="display:none">
+    <button class="btn-secondary" id="resyncBtn" title="Synka tid igen" aria-label="Synka tid">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="23 4 23 10 17 10"/>
+        <polyline points="1 20 1 14 7 14"/>
+        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+      </svg>
+    </button>
+    <button class="btn-shutter" id="shutterBtn" aria-label="Ta foto"></button>
+    <button class="btn-secondary" id="switchBtn" title="Växla kamera" aria-label="Växla kamera">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 7h2l2-3h10l2 3h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/>
+        <path d="M16 13a4 4 0 1 1-8 0M9 9l-2 2 2 2M15 9l2 2-2 2"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<div class="install-hint" id="installHint">
+  <button onclick="document.getElementById('installHint').classList.remove('show')">×</button>
+  <strong>Installera som app:</strong><br>
+  Tryck på <strong>Dela-knappen</strong> i Safari och välj <strong>"Lägg till på hemskärmen"</strong>.
+</div>
+
+<div class="modal" id="modal">
+  <div class="modal-header">
+    <h3>Bild fångad</h3>
+    <button class="modal-close" id="modalClose">×</button>
+  </div>
+  <div class="modal-body">
+    <img id="resultImg" alt="Capture">
+
+    <div class="cctv-section">
+      <div class="lbl">Jämför med CCTV-tid</div>
+      <div class="desc">Tiden i bilden läses automatiskt. Kontrollera siffrorna, korrigera vid behov, tryck sedan "Räkna ut differens".</div>
+      <div class="ocr-status" id="ocrStatus">
+        <span class="ocr-spinner" id="ocrSpinner"></span>
+        <span id="ocrText">Läser tid från bilden…</span>
+      </div>
+      <div class="time-input-row">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="HH" id="cctvH">
+        <span class="sep">:</span>
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="MM" id="cctvM">
+        <span class="sep">:</span>
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="SS" id="cctvS">
+      </div>
+      <button class="compute-btn" id="computeBtn" disabled>Räkna ut differens</button>
+      <label class="burn-toggle">
+        <input type="checkbox" id="burnDiffToggle" checked>
+        <span>Bränn in differens i bilden</span>
+      </label>
+      <div class="diff-result" id="diffResult"></div>
+    </div>
+
+    <div class="hint">
+      Tryck "Spara till Foton" och välj "Spara bild" i delningsmenyn.
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-discard" id="discardBtn">Släng</button>
+    <button class="btn-save" id="saveBtn">Spara till Foton</button>
+  </div>
+</div>
+
+<!-- Bekräftelse-modal efter spara -->
+<div class="modal" id="confirmModal">
+  <div class="modal-header">
+    <h3>Klart</h3>
+    <button class="modal-close" id="confirmClose">×</button>
+  </div>
+  <div class="modal-body">
+    <img id="confirmImg" alt="Sparad bild">
+    <div class="cctv-section" style="background: rgba(91, 140, 90, 0.08); border-color: rgba(91, 140, 90, 0.4);">
+      <div class="lbl" style="color: var(--ok);">Bilden delades</div>
+      <div class="desc">Om du valde <strong>"Spara bild"</strong> i delningsmenyn finns bilden nu i din Foton-app. Om du valde något annat (t.ex. avbröt eller delade vidare) finns bilden där istället.</div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-save" id="confirmOkBtn">OK</button>
+  </div>
+</div>
+
+<div class="toast" id="toast">Tid synkad</div>
+
+<canvas id="canvas" style="display:none"></canvas>
+
+<script>
+/* ============================================
+   CCTV-TIME CATCH PWA v0.3
+   ============================================ */
+
+const $ = (id) => document.getElementById(id);
+const video = $('video');
+const canvas = $('canvas');
+const overlay = $('overlay');
+const overlayTime = $('overlayTime');
+const overlayMeta = $('overlayMeta');
+const overlayLabel = $('overlayLabel');
+const statusEl = $('status');
+const statusText = $('statusText');
+
+let mediaStream = null;
+let timeOffset = 0;
+let lastSyncRTT = null;
+let syncSources = [];
+let currentFacing = 'environment';
+let burnMode = 'min';
+let lastSyncAt = null;
+let lastCaptureMs = null;   // for CCTV-comparison
+let lastCaptureBlob = null; // for sharing
+
+/* ---------- TIME SYNC ---------- */
+// CORS-vänliga endpoints som returnerar tid i body, inte bara Date-header
+const TIME_SOURCES = [
+  {
+    name: 'Cloudflare',
+    url: 'https://cloudflare.com/cdn-cgi/trace',
+    parse: async (res) => {
+      // cdn-cgi/trace returnerar text med "ts=<unix-float>"
+      const txt = await res.text();
+      const m = txt.match(/ts=([\d.]+)/);
+      if (m) return Math.round(parseFloat(m[1]) * 1000);
+      // fallback till Date-header
+      const dh = res.headers.get('date');
+      return dh ? new Date(dh).getTime() : null;
+    }
+  },
+  {
+    name: 'WorldTime',
+    url: 'https://worldtimeapi.org/api/timezone/Etc/UTC',
+    parse: async (res) => {
+      const j = await res.json();
+      // unixtime är sekunder, utc_datetime är ISO med ms
+      if (j.utc_datetime) return new Date(j.utc_datetime).getTime();
+      if (j.unixtime) return j.unixtime * 1000;
+      return null;
+    }
+  },
+  {
+    name: 'TimeAPI',
+    url: 'https://timeapi.io/api/Time/current/zone?timeZone=UTC',
+    parse: async (res) => {
+      const j = await res.json();
+      // dateTime är ISO med ms
+      if (j.dateTime) return new Date(j.dateTime + 'Z').getTime();
+      return null;
+    }
+  },
+];
+
+async function probeSource(src) {
+  const t0 = performance.now();
+  try {
+    const res = await fetch(src.url + (src.url.includes('?') ? '&' : '?') + '_t=' + Date.now(), {
+      method: 'GET',
+      cache: 'no-store',
+      mode: 'cors'
+    });
+    const t1 = performance.now();
+    const rtt = t1 - t0;
+    if (!res.ok) {
+      return { name: src.name, ok: false, reason: `HTTP ${res.status}` };
+    }
+    const serverMs = await src.parse(res);
+    if (!serverMs) {
+      return { name: src.name, ok: false, reason: 'parse-failed' };
+    }
+    const midClient = Date.now() - rtt / 2;
+    const offset = serverMs - midClient;
+    return { name: src.name, offset, rtt, ok: true };
+  } catch (e) {
+    return { name: src.name, ok: false, reason: e.message };
+  }
+}
+
+function median(arr) {
+  const s = [...arr].sort((a,b) => a-b);
+  const m = Math.floor(s.length/2);
+  return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2;
+}
+
+async function syncTime() {
+  setStatus('sync', 'Synkar tid…');
+  const results = await Promise.all(TIME_SOURCES.map(probeSource));
+  const good = results.filter(r => r.ok);
+
+  if (good.length === 0) {
+    setStatus('err', 'Tidsynk misslyckades');
+    syncSources = results.map(r => ({ name: r.name, ok: false }));
+    updateInfoBar();
+    toast('Kunde inte synka — kontrollera internet', 'err');
+    return false;
+  }
+
+  timeOffset = median(good.map(g => g.offset));
+  lastSyncRTT = good.reduce((a,g) => a + g.rtt, 0) / good.length;
+  syncSources = results.map(r => ({ name: r.name, ok: r.ok }));
+  lastSyncAt = Date.now();
+
+  setStatus('ok', `Synkad · ${good.length}/${TIME_SOURCES.length}`);
+  updateInfoBar();
+  toast('Tid synkad', 'ok');
+  return true;
+}
+
+function trueNow() { return Date.now() + timeOffset; }
+
+function setStatus(kind, text) {
+  statusEl.className = 'status ' + (kind === 'ok' ? 'ok' : kind === 'sync' ? 'sync' : '');
+  statusText.textContent = text;
+}
+
+function updateInfoBar() {
+  const okCount = syncSources.filter(s => s.ok).length;
+  $('srcVal').textContent = `${okCount}/${TIME_SOURCES.length}`;
+  $('offsetVal').textContent = lastSyncAt ? `${(timeOffset/1000).toFixed(3)}s` : '—';
+  $('rttVal').textContent = lastSyncRTT ? `±${Math.round(lastSyncRTT/2)}ms` : '—';
+  renderSourceList();
+}
+
+function renderSourceList() {
+  const list = $('srcList');
+  if (!syncSources.length) {
+    list.innerHTML = '<div class="row"><span class="name">Ej synkad än</span></div>';
+    return;
+  }
+  list.innerHTML = syncSources.map(s =>
+    `<div class="row"><span class="name">${s.name}</span><span class="stat ${s.ok ? 'ok' : 'fail'}">${s.ok ? '✓ synkad' : '✗ misslyckades'}</span></div>`
+  ).join('');
+}
+
+/* ---------- FORMAT HELPERS ---------- */
+// Huvudtid = LOKAL tid med ms-precision (det användaren ser i overlayen)
+function fmtTime(ms) {
+  const d = new Date(ms);
+  const hh = String(d.getHours()).padStart(2,'0');
+  const mm = String(d.getMinutes()).padStart(2,'0');
+  const ss = String(d.getSeconds()).padStart(2,'0');
+  const mss = String(d.getMilliseconds()).padStart(3,'0');
+  return `${hh}:${mm}:${ss}.${mss}`;
+}
+// UTC-version används bara som referens i Full Forensik
+function fmtUTC(ms) {
+  const d = new Date(ms);
+  const hh = String(d.getUTCHours()).padStart(2,'0');
+  const mm = String(d.getUTCMinutes()).padStart(2,'0');
+  const ss = String(d.getUTCSeconds()).padStart(2,'0');
+  const mss = String(d.getUTCMilliseconds()).padStart(3,'0');
+  return `${hh}:${mm}:${ss}.${mss}`;
+}
+function fmtDate(ms) {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function fmtLocalTime(ms) {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+}
+// Visa aktuell tidszon-offset, t.ex. "UTC+2"
+function fmtTzOffset() {
+  const m = -new Date().getTimezoneOffset();
+  const sign = m >= 0 ? '+' : '-';
+  const h = Math.floor(Math.abs(m) / 60);
+  const mins = Math.abs(m) % 60;
+  return mins ? `UTC${sign}${h}:${String(mins).padStart(2,'0')}` : `UTC${sign}${h}`;
+}
+
+// Format duration in Swedish: "1 timme 4 min 38 sek"
+function fmtDuration(ms) {
+  const totalSec = Math.abs(ms) / 1000;
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = Math.floor(totalSec % 60);
+  const msec = Math.round((Math.abs(ms) % 1000));
+
+  const parts = [];
+  if (h > 0) parts.push(`${h} ${h === 1 ? 'timme' : 'timmar'}`);
+  if (m > 0) parts.push(`${m} min`);
+  if (s > 0 || (h === 0 && m === 0)) parts.push(`${s} sek`);
+  if (h === 0 && m === 0 && Math.abs(ms) < 60000) {
+    // Show ms precision for short differences
+    return `${s}.${String(msec).padStart(3,'0')} sek`;
+  }
+  return parts.join(' ');
+}
+
+/* ---------- LIVE OVERLAY ---------- */
+function renderOverlay() {
+  const t = trueNow();
+  overlayTime.textContent = fmtTime(t);
+
+  if (burnMode === 'min') {
+    overlayLabel.textContent = `VERKLIG TID · ${fmtTzOffset()}`;
+    overlayMeta.innerHTML = '';
+  } else if (burnMode === 'std') {
+    overlayLabel.textContent = `VERKLIG TID · ${fmtTzOffset()}`;
+    overlayMeta.innerHTML =
+      `<strong>${fmtDate(t)}</strong> &nbsp;·&nbsp; Offset: ${(timeOffset/1000).toFixed(3)}s`;
+  } else {
+    overlayLabel.textContent = `FORENSISK TIDSTÄMPEL · ${fmtTzOffset()}`;
+    const okSrc = syncSources.filter(s => s.ok).map(s => s.name).join(', ') || 'ingen';
+    overlayMeta.innerHTML =
+      `<strong>${fmtDate(t)}</strong> &nbsp;·&nbsp; UTC: ${fmtUTC(t)}<br>` +
+      `Offset: ${(timeOffset/1000).toFixed(3)}s &nbsp;·&nbsp; ±${Math.round((lastSyncRTT||0)/2)}ms<br>` +
+      `Källor: ${okSrc}`;
+  }
+}
+setInterval(renderOverlay, 50);
+
+/* ---------- CAMERA ---------- */
+async function startCamera() {
+  if (!window.isSecureContext) {
+    alert('Den här appen kräver HTTPS för att komma åt kameran.');
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    toast('Kamera-API saknas');
+    return;
+  }
+
+  try {
+    // PROPERLY stop existing stream before requesting new
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(t => { t.stop(); });
+      mediaStream = null;
+      video.srcObject = null;
+      // Small delay to let iOS release the camera
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: currentFacing },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        // iOS Safari 16+ stödjer focusMode/zoom via advanced constraints
+        focusMode: 'continuous',
+        advanced: [
+          { focusMode: 'continuous' },
+          { focusDistance: { ideal: 0.5 } }
+        ]
+      },
+      audio: false,
+    });
+    video.srcObject = mediaStream;
+
+    // Försök sätta continuous autofocus efter att tracken är aktiv (iOS-fix)
+    setTimeout(() => {
+      const track = mediaStream && mediaStream.getVideoTracks()[0];
+      if (track && track.applyConstraints) {
+        const caps = track.getCapabilities ? track.getCapabilities() : {};
+        const adv = [];
+        if (caps.focusMode && caps.focusMode.includes('continuous')) {
+          adv.push({ focusMode: 'continuous' });
+        }
+        if (adv.length) {
+          track.applyConstraints({ advanced: adv }).catch(() => {});
+        }
+      }
+    }, 300);
+
+    $('noCam').style.display = 'none';
+    overlay.style.display = 'block';
+    $('startWrap').style.display = 'none';
+    $('captureRow').style.display = 'flex';
+
+    // Aktivera tap-to-focus och pinch-zoom
+    setupCameraInteraction();
+  } catch (e) {
+    console.error('Camera error:', e);
+    const msg = (e && e.name) || 'Okänt fel';
+    if (msg === 'NotAllowedError') {
+      alert('Kameraåtkomst nekades.\n\nGå till iPhone-inställningar → Safari → Kamera och tillåt åtkomst.');
+    } else if (msg === 'NotFoundError') {
+      toast('Ingen kamera hittades');
+    } else {
+      toast('Fel: ' + msg);
+    }
+  }
+}
+
+async function switchCamera() {
+  currentFacing = currentFacing === 'environment' ? 'user' : 'environment';
+
+  // Försök först byta kamera utan att släppa tillståndet (applyConstraints)
+  if (mediaStream) {
+    const track = mediaStream.getVideoTracks()[0];
+    if (track && typeof track.applyConstraints === 'function') {
+      try {
+        await track.applyConstraints({
+          facingMode: { ideal: currentFacing },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        });
+        // Lyckades — kameran är bytt utan ny permissions-prompt
+        return;
+      } catch (e) {
+        console.warn('applyConstraints misslyckades, faller tillbaka på getUserMedia:', e);
+        // Fall through till full restart
+      }
+    }
+  }
+
+  // Fallback: starta om kameran helt (kan trigga ny tillståndsfråga på vissa enheter)
+  await startCamera();
+}
+
+/* ---------- TAP-TO-FOCUS & PINCH-ZOOM ---------- */
+let currentZoom = 1;
+let pinchStartDist = 0;
+let pinchStartZoom = 1;
+let cameraInteractionSetup = false;
+
+function getTrack() {
+  return mediaStream && mediaStream.getVideoTracks()[0];
+}
+
+function setupCameraInteraction() {
+  if (cameraInteractionSetup) return;
+  cameraInteractionSetup = true;
+
+  const vf = $('viewfinder');
+
+  // TAP-TO-FOCUS: tryck för att fokusera på en punkt
+  vf.addEventListener('click', async (e) => {
+    // Ignorera om någon klickar på en knapp/overlay
+    if (e.target.closest('button') || e.target.closest('.overlay')) return;
+
+    const track = getTrack();
+    if (!track || !track.applyConstraints) return;
+
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    const rect = vf.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+
+    // Visuell pulse där användaren tryckte
+    showFocusIndicator(e.clientX - rect.left, e.clientY - rect.top);
+
+    const adv = [];
+
+    // pointsOfInterest stöds på iOS Safari 16+ (men kan ge fel — vi försöker)
+    if (caps.pointsOfInterest) {
+      adv.push({ pointsOfInterest: [{ x, y }] });
+    }
+    // Tvinga en omfokus-cykel: single-shot → continuous
+    if (caps.focusMode) {
+      if (caps.focusMode.includes('single-shot')) {
+        adv.push({ focusMode: 'single-shot' });
+      } else if (caps.focusMode.includes('manual')) {
+        adv.push({ focusMode: 'manual' });
+      }
+    }
+
+    if (adv.length === 0) {
+      // Ingen explicit fokusstyrning — försök ändå tvinga refokus genom att toggla
+      try {
+        await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+      } catch (_) {}
+      return;
+    }
+
+    try {
+      await track.applyConstraints({ advanced: adv });
+      // Återgå till continuous efter en kort stund
+      setTimeout(() => {
+        if (caps.focusMode && caps.focusMode.includes('continuous')) {
+          track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+        }
+      }, 1500);
+    } catch (err) {
+      console.warn('tap-to-focus misslyckades:', err);
+    }
+  });
+
+  // PINCH-TO-ZOOM
+  vf.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      pinchStartDist = touchDistance(e.touches[0], e.touches[1]);
+      pinchStartZoom = currentZoom;
+    }
+  }, { passive: true });
+
+  vf.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && pinchStartDist > 0) {
+      e.preventDefault();
+      const dist = touchDistance(e.touches[0], e.touches[1]);
+      const scale = dist / pinchStartDist;
+      applyZoom(pinchStartZoom * scale);
+    }
+  }, { passive: false });
+
+  vf.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) {
+      pinchStartDist = 0;
+    }
+  }, { passive: true });
+
+  // Double-tap = reset zoom till 1x
+  let lastTap = 0;
+  vf.addEventListener('touchend', (e) => {
+    if (e.target.closest('button')) return;
+    const now = Date.now();
+    if (now - lastTap < 300 && e.changedTouches.length === 1) {
+      applyZoom(1);
+    }
+    lastTap = now;
+  });
+}
+
+function touchDistance(t1, t2) {
+  const dx = t1.clientX - t2.clientX;
+  const dy = t1.clientY - t2.clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+async function applyZoom(targetZoom) {
+  const track = getTrack();
+  if (!track || !track.applyConstraints) return;
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  if (!caps.zoom) return;
+
+  const min = caps.zoom.min || 1;
+  const max = caps.zoom.max || 1;
+  const clamped = Math.max(min, Math.min(max, targetZoom));
+  currentZoom = clamped;
+
+  try {
+    await track.applyConstraints({ advanced: [{ zoom: clamped }] });
+  } catch (err) {
+    console.warn('zoom misslyckades:', err);
+  }
+}
+
+function showFocusIndicator(x, y) {
+  const ind = document.createElement('div');
+  ind.className = 'focus-indicator';
+  ind.style.left = (x - 30) + 'px';
+  ind.style.top = (y - 30) + 'px';
+  $('viewfinder').appendChild(ind);
+  setTimeout(() => ind.remove(), 800);
+}
+
+/* ---------- CAPTURE ---------- */
+function capture() {
+  if (!mediaStream) return;
+  const captureMs = trueNow();
+  lastCaptureMs = captureMs;
+
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!vw || !vh) { toast('Video ej redo'); return; }
+
+  canvas.width = vw;
+  canvas.height = vh;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, vw, vh);
+  drawBurnedOverlay(ctx, vw, vh, captureMs);
+
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+  $('resultImg').src = dataUrl;
+  $('saveBtn').dataset.url = dataUrl;
+  $('saveBtn').dataset.ts = fmtTime(captureMs).replace(/[:.]/g,'-');
+
+  // Convert to blob for Web Share API
+  canvas.toBlob((blob) => {
+    lastCaptureBlob = blob;
+  }, 'image/jpeg', 0.92);
+
+  // Reset CCTV comparison fields
+  $('cctvH').value = '';
+  $('cctvM').value = '';
+  $('cctvS').value = '';
+  $('diffResult').classList.remove('show');
+  $('diffResult').innerHTML = '';
+
+  $('modal').classList.add('open');
+
+  if (navigator.vibrate) navigator.vibrate(20);
+}
+
+function drawBurnedOverlay(ctx, W, H, captureMs, extraLines = null) {
+  const scale = Math.min(W, H) / 600;
+  const pad = 20 * scale;
+  const margin = 24 * scale;
+
+  const mainTime = fmtTime(captureMs);
+  let lines = [];
+  let labelText;
+
+  if (burnMode === 'min') {
+    labelText = `VERKLIG TID · ${fmtTzOffset()}`;
+  } else if (burnMode === 'std') {
+    labelText = `VERKLIG TID · ${fmtTzOffset()}`;
+    lines.push(`${fmtDate(captureMs)}   Offset: ${(timeOffset/1000).toFixed(3)}s`);
+  } else {
+    labelText = `FORENSISK TIDSTÄMPEL · ${fmtTzOffset()}`;
+    lines.push(`${fmtDate(captureMs)}    UTC: ${fmtUTC(captureMs)}`);
+    lines.push(`Offset: ${(timeOffset/1000).toFixed(3)}s    ±${Math.round((lastSyncRTT||0)/2)}ms`);
+    const okSrc = syncSources.filter(s => s.ok).map(s => s.name).join(', ') || 'ingen';
+    lines.push(`Källor: ${okSrc}`);
+  }
+
+  // Add CCTV comparison lines if provided
+  if (extraLines && extraLines.length) {
+    lines.push(''); // visual gap
+    extraLines.forEach(l => lines.push(l));
+  }
+
+  const labelSize = 14 * scale;
+  const timeSize = 42 * scale;
+  const metaSize = 14 * scale;
+  const lineGap = 6 * scale;
+
+  ctx.font = `600 ${timeSize}px ui-monospace, "SF Mono", Menlo, monospace`;
+  const timeW = ctx.measureText(mainTime).width;
+  ctx.font = `${metaSize}px ui-monospace, "SF Mono", Menlo, monospace`;
+  const metaW = lines.reduce((m,l) => Math.max(m, ctx.measureText(l).width), 0);
+  const boxW = Math.max(timeW, metaW) + pad*2;
+  const boxH = pad + labelSize + 8*scale + timeSize + (lines.length ? (pad/2 + lines.length*(metaSize + lineGap)) : 0) + pad;
+  const boxX = margin;
+  const boxY = H - margin - boxH;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(10, 10, 10, 0.82)';
+  ctx.strokeStyle = 'rgba(212, 160, 23, 0.8)';
+  ctx.lineWidth = 2 * scale;
+  roundRect(ctx, boxX, boxY, boxW, boxH, 4*scale);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#d4a017';
+  ctx.font = `600 ${labelSize}px ui-monospace, "SF Mono", Menlo, monospace`;
+  ctx.textBaseline = 'top';
+  ctx.fillText(labelText, boxX + pad, boxY + pad);
+
+  ctx.fillStyle = '#f5f1e8';
+  ctx.font = `600 ${timeSize}px ui-monospace, "SF Mono", Menlo, monospace`;
+  ctx.fillText(mainTime, boxX + pad, boxY + pad + labelSize + 8*scale);
+
+  if (lines.length) {
+    ctx.font = `${metaSize}px ui-monospace, "SF Mono", Menlo, monospace`;
+    let y = boxY + pad + labelSize + 8*scale + timeSize + pad/2;
+    for (const l of lines) {
+      // Highlight CCTV-comparison lines with accent color
+      if (l.startsWith('CCTV')) {
+        ctx.fillStyle = '#d4a017';
+      } else {
+        ctx.fillStyle = '#c8c0b0';
+      }
+      ctx.fillText(l, boxX + pad, y);
+      y += metaSize + lineGap;
+    }
+  }
+  ctx.restore();
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.arcTo(x+w, y, x+w, y+h, r);
+  ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r);
+  ctx.arcTo(x, y, x+w, y, r);
+  ctx.closePath();
+}
+
+/* ---------- CCTV COMPARISON ---------- */
+function computeCctvDiff(burnIn) {
+  // burnIn === undefined betyder "använd toggle-status" (för manuella klick)
+  if (typeof burnIn === 'undefined') burnIn = burnDiffEnabled;
+
+  const h = parseInt($('cctvH').value, 10);
+  const m = parseInt($('cctvM').value, 10);
+  const s = parseInt($('cctvS').value, 10);
+
+  if (isNaN(h) || isNaN(m) || isNaN(s)) {
+    // Tyst return om OCR triggar med tomma fält
+    return;
+  }
+  if (h > 23 || m > 59 || s > 59) {
+    toast('Ogiltig tid');
+    return;
+  }
+  if (!lastCaptureMs) return;
+
+  // Build CCTV time as same date as capture (LOCAL time on CCTV-screen assumed)
+  // We compare against the LOCAL time at capture moment
+  const capDate = new Date(lastCaptureMs);
+  const cctvDate = new Date(
+    capDate.getFullYear(),
+    capDate.getMonth(),
+    capDate.getDate(),
+    h, m, s, 0
+  );
+
+  // Verklig lokal tid vid capture (i ms)
+  const realLocalMs = lastCaptureMs;
+  const cctvMs = cctvDate.getTime();
+
+  // Handle case: CCTV time shown might be from "previous day" if real time is just after midnight
+  // or "next day" if CCTV is ahead — pick the smaller absolute diff considering ±12h
+  let diff = cctvMs - realLocalMs;
+  if (diff > 12 * 3600 * 1000) diff -= 24 * 3600 * 1000;
+  if (diff < -12 * 3600 * 1000) diff += 24 * 3600 * 1000;
+
+  // diff > 0  → CCTV visar senare tid → CCTV går FÖRE verklig tid
+  // diff < 0  → CCTV visar tidigare tid → CCTV går EFTER verklig tid
+  const direction = diff >= 0 ? 'före' : 'efter';
+  const durationStr = fmtDuration(diff);
+
+  // Show in UI
+  const result = $('diffResult');
+  result.innerHTML =
+    `CCTV-tid: <strong>${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}</strong> (lokal)<br>` +
+    `Verklig tid: <strong>${fmtLocalTime(realLocalMs)}.${String(new Date(realLocalMs).getMilliseconds()).padStart(3,'0')}</strong> (lokal)<br>` +
+    `<span class="big">CCTV-systemet går ${durationStr} ${direction} verklig tid</span>`;
+  result.classList.add('show');
+
+  // Re-burn the image with comparison
+  const vw = canvas.width;
+  const vh = canvas.height;
+  const ctx = canvas.getContext('2d');
+
+  // Redraw the original frame is tricky — we'd need to keep it. Instead we redraw from scratch:
+  // Easier: save the raw frame in a separate canvas before burning. For now, re-capture by re-drawing video
+  // BUT video has moved on. So we use the existing canvas content which has burn already.
+  // To redo cleanly, we capture a fresh frame from video plus the new overlay (this changes the photo!).
+  // Better approach: keep the original frame. Let's add that.
+
+  // Re-render: draw original frame, then overlay with extra lines (om burnIn är på)
+  if (originalFrameData) {
+    ctx.putImageData(originalFrameData, 0, 0);
+
+    let extraLines = null;
+    if (burnIn) {
+      let sourceLabel = ocrSource;
+      if (sourceLabel.startsWith('auto-läst')) {
+        // Check if value differs from what OCR last set
+      }
+      extraLines = [
+        `CCTV-tid: ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')} (${sourceLabel})`,
+        `CCTV ${direction} verklig tid: ${durationStr}`
+      ];
+    }
+    drawBurnedOverlay(ctx, vw, vh, lastCaptureMs, extraLines);
+
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+    $('resultImg').src = dataUrl;
+    $('saveBtn').dataset.url = dataUrl;
+    canvas.toBlob((blob) => { lastCaptureBlob = blob; }, 'image/jpeg', 0.92);
+  }
+
+  toast(burnIn ? 'Differens beräknad och inbränd' : 'Differens beräknad');
+}
+
+// If user edits any CCTV field after OCR filled it in, mark as corrected
+['cctvH','cctvM','cctvS'].forEach(id => {
+  $(id).addEventListener('blur', () => {
+    if (ocrSource.startsWith('auto-läst')) {
+      // First edit transition: switch to 'korrigerad' only if changed
+      // Simpler: just detect any blur after OCR; track separately
+    }
+  });
+  // Track explicit edits
+  $(id).addEventListener('input', (e) => {
+    if (e.isTrusted && ocrSource === 'auto-läst') {
+      ocrSource = 'korrigerad';
+      setOcrStatus('warn', 'Du korrigerade tiden — markeras som "korrigerad"');
+    }
+  });
+});
+
+// Track original frame so we can re-burn with CCTV comparison
+let originalFrameData = null;
+let originalImageBlob = null; // for OCR
+let ocrSource = 'manuell'; // tracks where the CCTV time came from
+let burnDiffEnabled = true; // ska differensen brännas in i bilden
+const originalCapture = capture;
+capture = function() {
+  if (!mediaStream) return;
+  const captureMs = trueNow();
+  lastCaptureMs = captureMs;
+
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!vw || !vh) { toast('Video ej redo'); return; }
+
+  canvas.width = vw;
+  canvas.height = vh;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, vw, vh);
+
+  // Save the clean frame BEFORE drawing overlay so we can re-burn later
+  originalFrameData = ctx.getImageData(0, 0, vw, vh);
+
+  // Save clean frame as blob for OCR (before overlay is drawn)
+  canvas.toBlob((blob) => {
+    originalImageBlob = blob;
+    runOCR(blob);  // start OCR in background
+  }, 'image/jpeg', 0.95);
+
+  drawBurnedOverlay(ctx, vw, vh, captureMs);
+
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+  $('resultImg').src = dataUrl;
+  $('saveBtn').dataset.url = dataUrl;
+  $('saveBtn').dataset.ts = fmtTime(captureMs).replace(/[:.]/g,'-');
+
+  canvas.toBlob((blob) => { lastCaptureBlob = blob; }, 'image/jpeg', 0.92);
+
+  $('cctvH').value = '';
+  $('cctvM').value = '';
+  $('cctvS').value = '';
+  $('diffResult').classList.remove('show');
+  $('diffResult').innerHTML = '';
+  ocrSource = 'manuell';
+  // Återställ burn-toggle till "på" som standard vid ny bild
+  $('burnDiffToggle').checked = true;
+  burnDiffEnabled = true;
+  // Knappen är inaktiv tills fälten är ifyllda
+  $('computeBtn').disabled = true;
+
+  // Reset OCR status
+  setOcrStatus('loading', 'Läser tid från bilden…');
+
+  $('modal').classList.add('open');
+  if (navigator.vibrate) navigator.vibrate(20);
+};
+
+/* ---------- OCR (hybrid: auto-fill + manual confirmation) ---------- */
+function setOcrStatus(kind, text) {
+  const el = $('ocrStatus');
+  el.className = 'ocr-status' + (kind === 'loading' ? '' : ' ' + kind);
+  $('ocrText').textContent = text;
+}
+
+// Uppdaterar 'Räkna ut differens'-knappens enabled-state baserat på fältens innehåll
+function updateComputeBtnState() {
+  const h = parseInt($('cctvH').value, 10);
+  const m = parseInt($('cctvM').value, 10);
+  const s = parseInt($('cctvS').value, 10);
+  const valid = !isNaN(h) && !isNaN(m) && !isNaN(s) &&
+                h >= 0 && h <= 23 &&
+                m >= 0 && m <= 59 &&
+                s >= 0 && s <= 59 &&
+                $('cctvH').value.length >= 1 &&
+                $('cctvM').value.length >= 1 &&
+                $('cctvS').value.length >= 1;
+  $('computeBtn').disabled = !valid;
+}
+
+// Förbehandla bilden för bättre OCR av CCTV-tider
+// Returnerar BÅDA varianter (normal + inverterad) eftersom Tesseract presterar
+// olika beroende på om text är mörk-på-ljus eller ljus-på-mörk.
+async function preprocessForOCR(blob) {
+  const img = await new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = reject;
+    i.src = URL.createObjectURL(blob);
+  });
+
+  // Beskär bort nedre 28% där appens egen overlay ligger
+  const cropTop = 0;
+  const cropHeight = Math.floor(img.height * 0.72);
+
+  // Skala upp 3x för att ge LCD-segment mer pixlar
+  const scale = 3;
+  const c = document.createElement('canvas');
+  c.width = img.width * scale;
+  c.height = cropHeight * scale;
+  const cctx = c.getContext('2d');
+  cctx.imageSmoothingEnabled = true;
+  cctx.imageSmoothingQuality = 'high';
+  cctx.drawImage(img,
+    0, cropTop, img.width, cropHeight,
+    0, 0, c.width, c.height
+  );
+
+  const data = cctx.getImageData(0, 0, c.width, c.height);
+  const px = data.data;
+
+  // Otsu's method för optimal threshold
+  const hist = new Array(256).fill(0);
+  for (let i = 0; i < px.length; i += 4) {
+    const gray = Math.round(px[i] * 0.299 + px[i+1] * 0.587 + px[i+2] * 0.114);
+    hist[gray]++;
+  }
+  const total = px.length / 4;
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let sumB = 0, wB = 0, maxVar = 0, threshold = 128;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (wB === 0) continue;
+    const wF = total - wB;
+    if (wF === 0) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const between = wB * wF * (mB - mF) * (mB - mF);
+    if (between > maxVar) { maxVar = between; threshold = t; }
+  }
+  console.log('OCR: Otsu threshold =', threshold);
+
+  // Bygg gråskala-array (för delade operationer)
+  const w = c.width, h = c.height;
+  const gray = new Uint8Array(w * h);
+  for (let i = 0, j = 0; i < px.length; i += 4, j++) {
+    gray[j] = Math.round(px[i] * 0.299 + px[i+1] * 0.587 + px[i+2] * 0.114);
+  }
+
+  // Producera NORMAL variant (svart text på vit)
+  const normalCanvas = document.createElement('canvas');
+  normalCanvas.width = w;
+  normalCanvas.height = h;
+  const nctx = normalCanvas.getContext('2d');
+  const nData = nctx.createImageData(w, h);
+  for (let j = 0, i = 0; j < gray.length; j++, i += 4) {
+    const v = gray[j] < threshold ? 0 : 255;
+    nData.data[i] = nData.data[i+1] = nData.data[i+2] = v;
+    nData.data[i+3] = 255;
+  }
+  nctx.putImageData(nData, 0, 0);
+
+  // Producera INVERTERAD variant (för LCD som ofta visas vit på mörk skärm)
+  const invCanvas = document.createElement('canvas');
+  invCanvas.width = w;
+  invCanvas.height = h;
+  const ictx = invCanvas.getContext('2d');
+  const iData = ictx.createImageData(w, h);
+  for (let j = 0, i = 0; j < gray.length; j++, i += 4) {
+    const v = gray[j] < threshold ? 255 : 0;  // inverterad
+    iData.data[i] = iData.data[i+1] = iData.data[i+2] = v;
+    iData.data[i+3] = 255;
+  }
+  ictx.putImageData(iData, 0, 0);
+
+  URL.revokeObjectURL(img.src);
+
+  const [normalBlob, invBlob] = await Promise.all([
+    new Promise(r => normalCanvas.toBlob(r, 'image/png')),
+    new Promise(r => invCanvas.toBlob(r, 'image/png'))
+  ]);
+  return { normal: normalBlob, inverted: invBlob };
+}
+
+async function runOCR(blob) {
+  if (typeof Tesseract === 'undefined') {
+    setOcrStatus('err', 'OCR ej tillgänglig — fyll i manuellt');
+    return;
+  }
+  if (!blob) {
+    setOcrStatus('err', 'Bilden kunde ej läsas');
+    return;
+  }
+
+  try {
+    // Förbehandla — får båda varianter (normal + inverterad)
+    let variants;
+    try {
+      variants = await preprocessForOCR(blob);
+    } catch (e) {
+      console.warn('Preprocessing misslyckades, kör på originalbild:', e);
+      variants = { normal: blob, inverted: null };
+    }
+
+    // Testa olika kombinationer: bildvariant × PSM-läge
+    const attempts = [
+      { blob: variants.normal,   psm: '7',  name: 'normal/line' },
+      { blob: variants.normal,   psm: '6',  name: 'normal/block' },
+      { blob: variants.inverted, psm: '7',  name: 'inv/line' },
+      { blob: variants.inverted, psm: '6',  name: 'inv/block' },
+      { blob: variants.normal,   psm: '11', name: 'normal/sparse' },
+      { blob: variants.inverted, psm: '11', name: 'inv/sparse' },
+    ];
+
+    let allText = '';
+    let bestTime = null;
+
+    for (const att of attempts) {
+      if (!att.blob) continue;
+      try {
+        const result = await Tesseract.recognize(att.blob, 'eng', {
+          tessedit_char_whitelist: '0123456789:',
+          tessedit_pageseg_mode: att.psm,
+        });
+        const text = result.data.text || '';
+        console.log(`OCR [${att.name}]:`, JSON.stringify(text));
+        allText += ' | ' + text;
+        const found = extractTimeFromText(text);
+        if (found) {
+          bestTime = found;
+          console.log(`OCR ✓ matched on ${att.name}:`, found);
+          break;
+        }
+      } catch (e) {
+        console.warn(`OCR ${att.name} misslyckades:`, e);
+      }
+    }
+
+    if (bestTime) {
+      $('cctvH').value = String(bestTime.h).padStart(2, '0');
+      $('cctvM').value = String(bestTime.m).padStart(2, '0');
+      $('cctvS').value = String(bestTime.s).padStart(2, '0');
+      ocrSource = 'auto-läst';
+      setOcrStatus('ok', `Läste tid: ${$('cctvH').value}:${$('cctvM').value}:${$('cctvS').value} — kontrollera och tryck "Räkna ut differens"`);
+      updateComputeBtnState();
+    } else {
+      // Visa vad OCR såg för felsökning
+      const cleaned = allText.replace(/[^0-9:|\s]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      const dbg = cleaned ? ` (såg: "${cleaned}")` : '';
+      setOcrStatus('warn', `Hittade ingen tid${dbg} — fyll i manuellt`);
+    }
+  } catch (e) {
+    console.error('OCR error:', e);
+    setOcrStatus('err', 'OCR misslyckades — fyll i manuellt');
+  }
+}
+
+// Extract HH:MM:SS or HH:MM from OCR text. Picks the candidate most likely to be a time.
+function extractTimeFromText(text) {
+  if (!text) return null;
+  // Försök först med HH:MM:SS — kan vara separerat av kolon, mellanslag, punkt eller streck
+  const reFull = /(\d{1,2})\s*[:.\-\s]\s*(\d{2})\s*[:.\-\s]\s*(\d{2})/g;
+  const candidates = [];
+  let m;
+  while ((m = reFull.exec(text)) !== null) {
+    const h = parseInt(m[1], 10);
+    const min = parseInt(m[2], 10);
+    const s = parseInt(m[3], 10);
+    if (h <= 23 && min <= 59 && s <= 59) {
+      candidates.push({ h, m: min, s, score: 3 });
+    }
+  }
+  // Sedan HH:MM utan sekunder
+  const reShort = /(?<!\d)(\d{1,2})\s*[:.\-]\s*(\d{2})(?!\s*[:.\-]?\s*\d)/g;
+  while ((m = reShort.exec(text)) !== null) {
+    const h = parseInt(m[1], 10);
+    const min = parseInt(m[2], 10);
+    if (h <= 23 && min <= 59) {
+      candidates.push({ h, m: min, s: 0, score: 2 });
+    }
+  }
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0];
+}
+
+/* ---------- SAVE via Web Share API (best route to Foton on iOS) ---------- */
+function showConfirmModal() {
+  // Visa samma bild som i huvudmodalen
+  $('confirmImg').src = $('saveBtn').dataset.url;
+  // Stäng huvudmodal, öppna bekräftelse
+  $('modal').classList.remove('open');
+  $('confirmModal').classList.add('open');
+}
+
+async function saveImage() {
+  const url = $('saveBtn').dataset.url;
+  const ts = $('saveBtn').dataset.ts;
+  const filename = `cctv-timecatch-${ts}.jpg`;
+
+  // Try Web Share API with file (works on iOS Safari 15+)
+  if (navigator.canShare && lastCaptureBlob) {
+    const file = new File([lastCaptureBlob], filename, { type: 'image/jpeg' });
+    if (navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'CCTV-Time Catch' });
+        // Web Share API kan inte säga om användaren valde "Spara bild" eller något annat
+        // Vi visar bekräftelse-modal som förklarar
+        showConfirmModal();
+        return;
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          toast('✗ Du avbröt delningen — bilden sparades inte', 'err');
+          return;
+        }
+        console.warn('Share failed:', e);
+        toast('✗ Delning misslyckades — laddar ner istället', 'warn');
+        // Fall through to download
+      }
+    } else {
+      toast('Enheten stödjer ej fildelning — laddar ner istället', 'warn');
+    }
+  } else {
+    toast('Delning ej tillgänglig — laddar ner istället', 'warn');
+  }
+
+  // Fallback: traditional download
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => {
+      showConfirmModal();
+    }, 600);
+  } catch (e) {
+    toast('✗ Sparning misslyckades: ' + (e.message || e.name), 'err');
+  }
+}
+
+/* ---------- UI WIRING ---------- */
+$('startBtn').addEventListener('click', startCamera);
+$('shutterBtn').addEventListener('click', () => capture());
+$('switchBtn').addEventListener('click', switchCamera);
+$('resyncBtn').addEventListener('click', syncTime);
+$('saveBtn').addEventListener('click', saveImage);
+$('discardBtn').addEventListener('click', () => $('modal').classList.remove('open'));
+$('modalClose').addEventListener('click', () => $('modal').classList.remove('open'));
+$('confirmClose').addEventListener('click', () => $('confirmModal').classList.remove('open'));
+$('confirmOkBtn').addEventListener('click', () => $('confirmModal').classList.remove('open'));
+$('computeBtn').addEventListener('click', () => computeCctvDiff(burnDiffEnabled));
+
+$('srcToggle').addEventListener('click', () => {
+  $('srcToggle').classList.toggle('open');
+  $('srcList').classList.toggle('show');
+});
+
+$('burnDiffToggle').addEventListener('change', (e) => {
+  burnDiffEnabled = e.target.checked;
+  // Om differens redan är uträknad — kör om med ny burn-status
+  const h = parseInt($('cctvH').value, 10);
+  if (!isNaN(h) && lastCaptureMs) {
+    computeCctvDiff(burnDiffEnabled);
+  }
+});
+
+// Auto-advance CCTV time inputs + uppdatera knapp-state vid varje ändring
+['cctvH','cctvM','cctvS'].forEach((id, idx, arr) => {
+  const el = $(id);
+  el.addEventListener('input', (e) => {
+    const v = e.target.value.replace(/[^0-9]/g,'');
+    e.target.value = v;
+    if (v.length === 2 && idx < arr.length - 1) {
+      $(arr[idx+1]).focus();
+    }
+    updateComputeBtnState();
+  });
+  // iOS-fallback: tvinga fokus vid tap om naturlig fokus inte triggar tangentbordet
+  el.addEventListener('touchend', (e) => {
+    // Bara om vi inte redan har fokus
+    if (document.activeElement !== el) {
+      e.preventDefault();
+      el.focus();
+      // På iOS hjälper det ibland att också göra ett klick:
+      try { el.click(); } catch(_) {}
+    }
+  }, { passive: false });
+});
+
+document.querySelectorAll('.mode-switch button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.mode-switch button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    burnMode = b.dataset.mode;
+    renderOverlay();
+  });
+});
+
+/* ---------- TOAST ---------- */
+let toastTimer;
+function toast(msg, kind) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (kind ? ' ' + kind : '');
+  clearTimeout(toastTimer);
+  const duration = kind === 'err' ? 3500 : kind === 'warn' ? 2800 : 1800;
+  toastTimer = setTimeout(() => t.className = 'toast', duration);
+}
+
+/* ---------- INSTALL HINT ---------- */
+function checkInstallHint() {
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+  if (isIOS && !isStandalone) {
+    setTimeout(() => $('installHint').classList.add('show'), 3000);
+    setTimeout(() => $('installHint').classList.remove('show'), 12000);
+  }
+}
+
+/* ---------- SERVICE WORKER ---------- */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW failed:', err));
+  });
+}
+
+/* ---------- BOOT ---------- */
+syncTime();
+setInterval(syncTime, 5 * 60 * 1000);
+checkInstallHint();
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    if (!lastSyncAt || Date.now() - lastSyncAt > 60_000) syncTime();
+  }
+});
+</script>
+</body>
+</html>
